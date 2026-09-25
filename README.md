@@ -7,3 +7,6 @@ Swap 192.168.1.50 for your PC's actual IP. It handles: installing Rust if missin
 To get it onto the headset: open the Frame's browser in Desktop Mode and download it from this chat, or drop it on a USB stick and copy it over.
 
 One honest caveat: since frameeyeosc is such a new, minimally-tested project, the build step is the part most likely to hit a snag (e.g. a missing compiler) — the script will tell you the exact pacman command to run if that happens.
+
+Source is  https://github.com/konsti219/frameeyeosc.git
+they made all the technical stuff im just trying to make the install faster
