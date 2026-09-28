@@ -58,45 +58,6 @@ SETUP_LOG="$STATE_DIR/setup.log"
 # afterwards without watching the terminal. Shown by --status.
 record() { printf '%s\t%s\t%s\n' "$(date -Is 2>/dev/null || date)" "$1" "${2:-}" >> "$SETUP_LOG" 2>/dev/null || true; }
 
-# #region agent log
-_dbg() { # $1 hypothesisId, $2 message, $3 json object
-  python3 - "$1" "$2" "${3:-{}}" "$STATE_DIR" "$(dirname "$SCRIPT_PATH")" "${TARGET_IP:-}" <<'PY' 2>/dev/null || true
-import json, pathlib, sys, time, urllib.request
-hyp, msg, raw, state_dir, script_dir, target_ip = sys.argv[1:7]
-try:
-    data = json.loads(raw)
-except Exception:
-    data = {"raw": raw}
-obj = {
-    "sessionId": "c2f79c",
-    "runId": "cal-during-use",
-    "hypothesisId": hyp,
-    "location": "setup.sh",
-    "message": msg,
-    "data": data,
-    "timestamp": int(time.time() * 1000),
-}
-line = json.dumps(obj)
-for p in (pathlib.Path(state_dir) / "debug-c2f79c.log", pathlib.Path(script_dir) / "debug-c2f79c.log"):
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-    except OSError:
-        pass
-urls = ["http://127.0.0.1:7288/ingest/23a19f8e-0381-4849-b5b3-f30ff0cecca3"]
-if target_ip:
-    urls.append("http://%s:7288/ingest/23a19f8e-0381-4849-b5b3-f30ff0cecca3" % target_ip)
-for url in urls:
-    try:
-        req = urllib.request.Request(url, data=line.encode(), headers={"Content-Type": "application/json", "X-Debug-Session-Id": "c2f79c"}, method="POST")
-        urllib.request.urlopen(req, timeout=0.4).read()
-    except Exception:
-        pass
-PY
-}
-# #endregion
-
 log()  { echo "==> $*"; }
 warn() { echo "--> $*" >&2; record "warn" "$*"; }
 die()  { echo "ERROR: $*" >&2; record "error" "$*"; exit 1; }
@@ -232,23 +193,9 @@ run_args() {
   return 0
 }
 
-tracker_count() {
-  local n
-  n="$(pgrep -x frameeyeosc 2>/dev/null | wc -l | tr -d ' ')" || true
-  printf '%s' "${n:-0}"
-}
-
 # Steam Calibrate (and any --print-lids sample) cannot share the eye mmap with a
 # live sender. Stop systemd and any foreground frameeyeosc, then wait for it.
 stop_eye_tracker() {
-  local n_before n_after svc="inactive"
-  n_before="$(tracker_count)"
-  if systemctl --user is-active --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
-    svc="active"
-  fi
-  # #region agent log
-  _dbg "A" "stop_tracker_begin" "{\"n\":${n_before:-0},\"service\":\"$svc\"}"
-  # #endregion
   systemctl --user stop "${SERVICE_NAME}.service" >/dev/null 2>&1 || true
   pkill -x frameeyeosc >/dev/null 2>&1 || true
   local i
@@ -260,10 +207,6 @@ stop_eye_tracker() {
     pkill -9 -x frameeyeosc >/dev/null 2>&1 || true
     sleep 0.2
   fi
-  n_after="$(tracker_count)"
-  # #region agent log
-  _dbg "A" "stop_tracker_end" "{\"n_before\":${n_before:-0},\"n_after\":${n_after:-0},\"service_was\":\"$svc\"}"
-  # #endregion
 }
 
 # Writes ~/.local/bin/frameeyeosc-ctl. Start always re-reads settings.conf so a
@@ -279,7 +222,6 @@ write_ctl_file() {
     printf 'service_file=%q\n' "$SERVICE_FILE"
     printf 'setup_script=%q\n' "$SCRIPT_PATH"
     printf 'bin_path=%q\n' "$BIN_PATH"
-    printf 'state_dir=%q\n' "$STATE_DIR"
     printf 'config_file=%q\n' "$CONFIG_FILE"
     printf 'fallback_run_args=('
     printf ' %q' "${RUN_ARGS[@]}"
@@ -293,49 +235,13 @@ if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "${XDG_RUNTIME_DIR}/bus" ]]; then
   export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
 fi
 
-# #region agent log
-_ctl_dbg() {
-  python3 - "$1" "$2" "$3" "$state_dir" <<'PY' 2>/dev/null || true
-import json, pathlib, sys, time
-hyp, msg, raw, state_dir = sys.argv[1:5]
-try:
-    data = json.loads(raw)
-except Exception:
-    data = {"raw": raw}
-obj = {
-    "sessionId": "c2f79c",
-    "runId": "steam-exec",
-    "hypothesisId": hyp,
-    "location": "frameeyeosc-ctl",
-    "message": msg,
-    "data": data,
-    "timestamp": int(time.time() * 1000),
-}
-line = json.dumps(obj)
-try:
-    pathlib.Path(state_dir).mkdir(parents=True, exist_ok=True)
-    with open(pathlib.Path(state_dir) / "debug-c2f79c.log", "a", encoding="utf-8") as fh:
-        fh.write(line + "\n")
-except OSError:
-    pass
-try:
-    with open(pathlib.Path(state_dir) / "setup.log", "a", encoding="utf-8") as fh:
-        fh.write("%s\tctl\t%s %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S"), msg, raw))
-except OSError:
-    pass
-PY
-}
-# #endregion
-
 load_run_args() {
   run_args=("${fallback_run_args[@]}")
-  sourced=0
   [[ -f "$config_file" ]] || return 0
   set +u
   # shellcheck disable=SC1090
   source "$config_file"
   set -u
-  sourced=1
   PORT="${PORT:-9000}"
   PREFIX="${PREFIX:-/FT}"
   LID_MIN_LEFT="${LID_MIN_LEFT:-${LID_MIN:-0.0}}"
@@ -363,10 +269,7 @@ case "$cmd" in
     # Steam Game Mode: do NOT systemctl-and-exit (that looks like a silent
     # crash). Run the tracker in the foreground, same as a working terminal
     # start. Steam keeps this process alive until you leave the library item.
-    dbus_set=false
-    [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] && dbus_set=true
     load_run_args
-    _ctl_dbg "C" "before_exec" "{\"cmd\":\"$cmd\",\"dbus_set\":$dbus_set,\"bin_exists\":$( [[ -x "$bin_path" ]] && echo true || echo false ),\"sourced\":${sourced:-0},\"argc\":${#run_args[@]}}"
     if [[ -z "${INVOCATION_ID:-}" ]]; then
       systemctl --user stop "$unit" >/dev/null 2>&1 || true
     fi
@@ -374,7 +277,6 @@ case "$cmd" in
     pkill -x frameeyeosc >/dev/null 2>&1 || true
     sleep 0.2
     if [[ ! -x "$bin_path" ]]; then
-      _ctl_dbg "B" "missing_binary" "{\"bin\":\"$bin_path\"}"
       echo "ERROR: $bin_path is missing. Re-run setup once." >&2
       sleep 3
       exit 1
@@ -386,7 +288,6 @@ case "$cmd" in
     echo "  Close this window, or stop the game in Steam, to quit."
     echo "========================================"
     echo
-    _ctl_dbg "C" "exec" "{\"argc\":${#run_args[@]},\"sourced\":${sourced:-0}}"
     exec "$bin_path" "${run_args[@]}"
     ;;
   stop)    systemctl --user stop "$unit" ;;
@@ -670,16 +571,9 @@ mean() { # average of numbers on stdin
 
 sample_phase() { # $1 = seconds, $2 = output file; collects raw openness samples
   local seconds="$1" out="$2" raw="$STATE_DIR/phase-raw.txt"
-  local n lines=0 head=""
-  n="$(tracker_count)"
   timeout "$seconds" "$BIN_PATH" --target 127.0.0.1:9 --prefix "$PREFIX" --print-lids \
     >/dev/null 2>"$raw" || true
   grep -E '^-?[0-9]+\.[0-9]+ -?[0-9]+\.[0-9]+$' "$raw" > "$out" || true
-  [[ -f "$out" ]] && lines="$(wc -l < "$out" | tr -d ' ')" || true
-  head="$(head -c 80 "$raw" 2>/dev/null | tr -cd 'A-Za-z0-9._: +-' | tr '\n' ' ')" || true
-  # #region agent log
-  _dbg "A" "sample_phase" "{\"seconds\":$seconds,\"trackers_at_start\":${n:-0},\"lines\":${lines:-0},\"raw_head\":\"$head\"}"
-  # #endregion
   if [[ ! -s "$out" ]]; then
     warn "No eye data was received. frameeyeosc said:"
     sed 's/^/    /' "$raw" >&2
@@ -726,44 +620,20 @@ PY
 # Writes a wav and plays it (same path as beeps). Do not use spd-say — on
 # SteamOS it often speaks "the eSpeak module is working" instead of the text.
 speak() {
-  local text="${1:-}" wav="/tmp/frameeye-tts.wav" engine="none" played=0
+  local text="${1:-}" wav="/tmp/frameeye-tts.wav"
   [[ "${CAL_SPEAK:-0}" == "1" ]] || return 0
   [[ -n "$text" ]] || return 0
   rm -f "$wav"
   if command -v espeak-ng &>/dev/null; then
-    engine="espeak-ng"
     espeak-ng -s 130 -w "$wav" -- "$text" >/dev/null 2>&1 || true
   elif command -v espeak &>/dev/null; then
-    engine="espeak"
     espeak -s 130 -w "$wav" -- "$text" >/dev/null 2>&1 || true
   fi
   if [[ -s "$wav" ]]; then
-    if command -v pw-play &>/dev/null && pw-play "$wav" >/dev/null 2>&1; then played=1
-    elif command -v paplay &>/dev/null && paplay "$wav" >/dev/null 2>&1; then played=1
-    elif command -v aplay &>/dev/null && aplay -q "$wav" >/dev/null 2>&1; then played=1
-    fi
+    if command -v pw-play &>/dev/null && pw-play "$wav" >/dev/null 2>&1; then return 0; fi
+    if command -v paplay &>/dev/null && paplay "$wav" >/dev/null 2>&1; then return 0; fi
+    if command -v aplay &>/dev/null && aplay -q "$wav" >/dev/null 2>&1; then return 0; fi
   fi
-  # #region agent log
-  python3 - "$engine" "$text" "$played" "$STATE_DIR" <<'PY' 2>/dev/null || true
-import json, pathlib, sys, time
-engine, text, played, state_dir = sys.argv[1:5]
-obj = {
-    "sessionId": "c2f79c",
-    "runId": "tts-wav",
-    "hypothesisId": "A",
-    "location": "setup.sh:speak",
-    "message": "tts",
-    "data": {"engine": engine, "text": text, "played": played == "1"},
-    "timestamp": int(time.time() * 1000),
-}
-try:
-    pathlib.Path(state_dir).mkdir(parents=True, exist_ok=True)
-    with open(pathlib.Path(state_dir) / "debug-c2f79c.log", "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(obj) + "\n")
-except OSError:
-    pass
-PY
-  # #endregion
   return 0
 }
 
@@ -1053,9 +923,6 @@ fi
 resume_tracking_after_audio_cal() {
   run_args
   write_ctl_file
-  # #region agent log
-  _dbg "B" "resume_tracking" "{\"bin_exists\":$( [[ -x "$BIN_PATH" ]] && echo true || echo false ),\"args\":\"${RUN_ARGS[*]}\",\"lids\":\"L=$LID_MIN_LEFT/$LID_MAX_LEFT R=$LID_MIN_RIGHT/$LID_MAX_RIGHT inv=$LID_INVERT\"}"
-  # #endregion
   [[ -x "$BIN_PATH" ]] || die "Missing $BIN_PATH. Re-run setup once."
   log "Starting tracking -> ${TARGET_IP}:${PORT} with the current calibration. Stop this item in Steam to quit."
   exec "$BIN_PATH" "${RUN_ARGS[@]}"
@@ -1064,17 +931,9 @@ resume_tracking_after_audio_cal() {
 if [[ "$MODE" == "calibrate-audio" ]]; then
   [[ $CALIBRATION_AVAILABLE -eq 1 ]] || die "This build has no calibration support, see the warnings above."
   CAL_SPEAK=1
-  # #region agent log
-  _cal_svc="$(systemctl --user is-active "${SERVICE_NAME}.service" 2>/dev/null || true)"
-  _dbg "D" "cal_audio_start" "{\"trackers\":$(tracker_count),\"service\":\"${_cal_svc:-inactive}\"}"
-  unset _cal_svc
-  # #endregion
   if guided_calibration audio; then
     save_config
     log "Saved to $CONFIG_FILE"
-    # #region agent log
-    _dbg "B" "cal_saved" "{\"file\":\"$CONFIG_FILE\",\"L\":\"$LID_MIN_LEFT/$LID_MAX_LEFT\",\"R\":\"$LID_MIN_RIGHT/$LID_MAX_RIGHT\",\"inv\":\"$LID_INVERT\"}"
-    # #endregion
     speak "Calibration saved. Starting tracking."
     play_tone 880 150 || true
     play_tone 1320 280 || true
@@ -1086,9 +945,6 @@ if [[ "$MODE" == "calibrate-audio" ]]; then
   play_tone 220 400 || true
   play_tone 180 500 || true
   warn "Calibration failed; resuming tracking with the previous values."
-  # #region agent log
-  _dbg "B" "cal_failed_resume" "{\"trackers\":$(tracker_count)}"
-  # #endregion
   resume_tracking_after_audio_cal
 fi
 
