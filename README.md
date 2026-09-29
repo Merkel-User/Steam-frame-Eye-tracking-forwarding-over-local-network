@@ -13,7 +13,7 @@ This repository contains **only a setup script around it**: dependency installat
 step, a background service, and adding **Frame Eye OSC** to Steam as a non-Steam game. If frameeyeosc is useful to you,
 go star the upstream project.
 
-**Thank you Tenebrex** for letting this be tested on his Steam Frame.
+**Thank you Tenebrex** for letting this be tested on their Steam Frame.
 
 ## License
 
