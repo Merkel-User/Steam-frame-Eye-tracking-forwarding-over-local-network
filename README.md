@@ -3,15 +3,18 @@
 One script that installs, builds, calibrates and runs **[frameeyeosc](https://github.com/konsti219/frameeyeosc)** on a
 **Steam Frame**, so the headset's eye tracking (gaze **and** eyelids) shows up on your avatar in **VRChat** on your PC.
 
+**This release only supports normal Desktop Mode execution.** Rename the script with your PC IP, open a terminal in
+Desktop Mode, and run `bash setup_frame_eye_forward_<YOUR-PC-IP>.sh`. The **Frame Eye OSC** / **Frame Eye OSC Calibrate**
+items added as non-Steam games are **not working yet** — do not use them from Steam or Game Mode for now.
+
 ## Credits
 
 All of the actual technical work — reverse engineering the Frame's private eye-tracking shared memory
 (`/dev/shm/eye-server.mmap`), decoding the data layout and sending it out as VRCFT-style OSC parameters — was done by
 **[konsti219](https://github.com/konsti219)** in **[konsti219/frameeyeosc](https://github.com/konsti219/frameeyeosc)** (MIT).
 
-This repository contains **only a setup script around it**: dependency installation, building, an eyelid calibration
-step, a background service, and adding **Frame Eye OSC** to Steam as a non-Steam game. If frameeyeosc is useful to you,
-go star the upstream project.
+This repository contains **only a setup script around it**: dependency installation, building, and an eyelid calibration
+step. If frameeyeosc is useful to you, go star the upstream project.
 
 **Thank you Tenebrex** for letting this be tested on their Steam Frame.
 
@@ -33,8 +36,8 @@ That license is not replaced. Full texts are in [`LICENSE`](LICENSE).
 2. Clones **frameeyeosc** into `~/frameeyeosc` and keeps that copy untouched so `git pull` always works.
 3. Copies the source to `~/frameeyeosc-build` and adds **eyelid calibration options** to that copy.
 4. Builds the release binary.
-5. Asks whether you want to adjust the eyelid calibration, then runs it — in the foreground or as a background service.
-6. Adds **Frame Eye OSC** and **Frame Eye OSC Calibrate** to Steam as non-Steam games if they are not already there, so you can start forwarding from Game Mode.
+5. Asks whether you want to adjust the eyelid calibration, then runs it in the foreground (Desktop Mode terminal).
+6. May also write Steam / desktop launchers. **Those non-Steam Game Mode entries do not work yet** — use Desktop Mode only.
 
 ### Where things end up
 
@@ -83,25 +86,15 @@ bash ~/Downloads/setup_frame_eye_forward_192.168.178.71.sh            # this ter
 bash ~/Downloads/setup_frame_eye_forward_192.168.178.71.sh --service  # background
 ```
 
-Either way the script installs a systemd user unit and **adds the launchers to Steam** as non-Steam games when they are
-missing. `--service` also **starts** forwarding now and at every login. Skipping `--service` still writes that unit and
-the Steam entries; this run stays in the foreground until you press Ctrl+C.
+Either way the script can write a systemd user unit and Steam launcher files. **`--service` and the non-Steam Game Mode
+entries are not working yet.** Skipping `--service` runs tracking in this Desktop Mode terminal until you press Ctrl+C —
+that is the supported path for this release.
 
-### 4. Steam (Game Mode)
+### 4. Steam (not working yet)
 
-Copy **one** setup script to the headset. It writes **Frame Eye OSC** and **Frame Eye OSC Calibrate**, then adds each
-as a non-Steam game if that **exact name** (or desktop file path) is not already in Steam’s `shortcuts.vdf`. The short
-name **Frame Eye OSC** is not treated as a duplicate of **Frame Eye OSC Calibrate**.
-
-It uses SteamOS’s add-to-Steam helper when present, otherwise `steam://addnonsteamgame/`. If Steam still does not
-create the shortcut, the script writes it into `shortcuts.vdf` itself. A later run will skip names that are already
-there.
-
-If the new entry is missing until you leave Desktop Mode, switch to **Game Mode** (or restart Steam) once.
-
-If automatic add fails: **Steam → Games → Add a Non-Steam Game** and pick **Frame Eye OSC**.
-
-From **Game Mode**, launch **Frame Eye OSC**. A **terminal** should stay open showing that tracking is running. Leave it open. Stop it by closing that window or stopping the game in Steam. For always-on with no window, use `--service`.
+The script may add **Frame Eye OSC** and **Frame Eye OSC Calibrate** as non-Steam games. **Do not use those library
+items in this release.** Tracking and calibration only work when you run the setup script from a **Desktop Mode
+terminal**. Game Mode / non-Steam launchers will be wired up in a later release.
 
 ### VRChat side (on your PC)
 
@@ -138,7 +131,7 @@ bash setup_frame_eye_forward_<YOUR-PC-IP>.sh --lid          # same thing
 ~/.local/bin/frameeyeosc-ctl calibrate                     # after the first full run
 ```
 
-**Frame Eye OSC Calibrate** in Steam uses **spoken instructions plus beeps** (no terminal, no [PROCEED]). You can launch it **while Frame Eye OSC is already sending**. Tracking pauses for the two recordings, then continues with the new lid values (that library item stays running until you stop it in Steam). After you launch Calibrate there is a **15 second** get-ready wait (it says when 10 and 5 seconds remain). Then: close your eyes when it says to, keep them shut until it says open, then keep them wide open. It says “Calibration saved. Starting tracking.” when done. Terminal `--calibrate` is still beeps and on-screen prompts only (no voice).
+**Steam Calibrate is not working yet.** Use terminal `--calibrate` in Desktop Mode (prompts + beeps; no voice).
 
 ### What the values mean
 
@@ -237,15 +230,8 @@ appends to `~/.local/state/frameeyeosc/setup.log`.
 
 ### Service and Steam entry
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| Service doesn't start in Game Mode | User session lingering is off | `loginctl enable-linger $USER` (the script tries this automatically) |
-| Steam entry does nothing visible | It's a headless start, there's no window | Check with `~/.local/bin/frameeyeosc-ctl status` |
-| Steam Frame Eye OSC does not send OSC | The shortcut must stay running in its terminal | Re-run setup, launch **Frame Eye OSC**, and leave the terminal open until you stop it in Steam |
-| Library missing Frame Eye OSC after setup | Steam has not refreshed yet | Switch to Game Mode or restart Steam, then re-run setup if it is still missing |
-| Duplicate Frame Eye OSC entries | An older add used a different path | In Steam, remove the extras; the next setup run skips the name if it is already in `shortcuts.vdf` |
-| Service won't start | Any runtime error | `journalctl --user -u frameeyeosc.service -n 50` |
-| Old settings keep coming back | Service still uses the previous command line | Re-run the script with `--service` to rewrite the unit |
+**Not supported in this release.** If a non-Steam **Frame Eye OSC** / **Calibrate** item appears in Steam, ignore it and
+run the script from a Desktop Mode terminal instead. `--service` is also not a supported launch path yet.
 
 ---
 
