@@ -1,0 +1,46 @@
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -71,6 +71,15 @@ struct Args {
+     target: String,
+     #[arg(long, default_value = "/FT")]
+     prefix: String,
++    /// Raw shared-memory openness when your eyes are fully closed.
++    #[arg(long, default_value = "0.0")]
++    lid_min: f32,
++    /// Raw shared-memory openness when your eyes are fully open.
++    #[arg(long, default_value = "1.0")]
++    lid_max: f32,
++    /// Gain applied after normalizing openness to 0–1.
++    #[arg(long, default_value = "1.0")]
++    lid_scale: f32,
+ }
+ 
+ struct EyeSource {
+@@ -228,6 +237,17 @@ fn gaze_angles([x, y, z]: [f32; 3]) -> [f32; 2] {
+     ]
+ }
+ 
++fn map_openness(raw: f32, lid_min: f32, lid_max: f32, lid_scale: f32) -> f32 {
++    let span = lid_max - lid_min;
++    let normalized = if span <= f32::EPSILON {
++        raw
++    } else {
++        (raw - lid_min) / span
++    };
++    (normalized.clamp(0.0, 1.0) * lid_scale).clamp(0.0, 1.0)
++}
++
+ fn send_eye_data(socket: &UdpSocket, args: &Args, data: EyeData) -> Result<(), Box<dyn Error>> {
+     let prefix = format!("/avatar/parameters{}", args.prefix.trim_end_matches('/'));
+     send(
+@@ -244,8 +264,8 @@ fn send_eye_data(socket: &UdpSocket, args: &Args, data: EyeData) -> Result<(), B
+         ("EyeLeftY", left_y),
+         ("EyeRightX", right_x),
+         ("EyeRightY", right_y),
+-        ("EyeLidLeft", data.openness[0].clamp(0.0, 1.0)),
+-        ("EyeLidRight", data.openness[1].clamp(0.0, 1.0)),
++        ("EyeLidLeft", map_openness(data.openness[0], args.lid_min, args.lid_max, args.lid_scale)),
++        ("EyeLidRight", map_openness(data.openness[1], args.lid_min, args.lid_max, args.lid_scale)),
+         ("EyeX", x),
+         ("EyeY", y),
+     ] {
